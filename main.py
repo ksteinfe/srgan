@@ -7,8 +7,10 @@ import numpy as np
 from time import localtime, strftime
 import logging, scipy, math
 
+print("==== Loading tensorflow and tensorlayer")
 import tensorflow as tf
 import tensorlayer as tl
+print("==== done")
 from model import SRGAN_g, SRGAN_d, Vgg19_simple_api
 from utils import *
 from config import config, log_config
@@ -107,15 +109,15 @@ def train():
     ###========================== RESTORE MODEL =============================###
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
     tl.layers.initialize_global_variables(sess)
-    
+
     do_init_g = True #ksteinfe
-    
+
     if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/g_{}.npz'.format(tl.global_flag['mode']), network=net_g) is False:
         tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/g_{}_init.npz'.format(tl.global_flag['mode']), network=net_g)
     else:
-        print("ksteinfe: existing model found. will start from here.")
+        print("==== ksteinfe: existing model found. will start from here.")
         do_init_g = False
-        
+
     tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/d_{}.npz'.format(tl.global_flag['mode']), network=net_d)
 
     ###============================= LOAD VGG ===============================###
@@ -150,9 +152,9 @@ def train():
     tl.vis.save_images(sample_imgs_384, [ni, ni], save_dir_gan + '/_train_sample_384.png')
 
     ###========================= initialize G ====================###
-    
+
     if do_init_g: #ksteinfe
-        
+
         ## fixed learning rate
         sess.run(tf.assign(lr_v, lr_init))
         print(" ** fixed learning rate: %f (for init G)" % lr_init)
@@ -180,7 +182,7 @@ def train():
                 print("Epoch [%2d/%2d] %4d time: %4.4fs, mse: %.8f " % (epoch, n_epoch_init, n_iter, time.time() - step_time, errM))
                 total_mse_loss += errM
                 n_iter += 1
-                
+
             log = "[*] Epoch: [%2d/%2d] time: %4.4fs, mse: %.8f" % (epoch, n_epoch_init, time.time() - epoch_time, total_mse_loss / n_iter)
             print(log)
 
@@ -234,7 +236,7 @@ def train():
             total_d_loss += errD
             total_g_loss += errG
             n_iter += 1
-            
+
             ''' ksteinfe added this to sample each iter
             out = sess.run(net_g_test.outputs, {t_image: sample_imgs_96})  #; print('gen sub-image:', out.shape, out.min(), out.max())
             tl.vis.save_images(out, [ni, ni], save_dir_gan + '/train_%d.png' % epoch)
