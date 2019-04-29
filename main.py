@@ -5,7 +5,7 @@ import os, time, pickle, random, time
 from datetime import datetime
 import numpy as np
 from time import localtime, strftime
-import logging, scipy
+import logging, scipy, math
 
 import tensorflow as tf
 import tensorlayer as tl
@@ -25,10 +25,11 @@ n_epoch = config.TRAIN.n_epoch
 lr_decay = config.TRAIN.lr_decay
 decay_every = config.TRAIN.decay_every
 
+#ni = math.floor(np.sqrt(batch_size)) #ksteinfe changed from int(np.sqrt(batch_size))
 ni = int(np.sqrt(batch_size))
 
-
 def train():
+    print("==== TRAINING")
     ## create folders to save result images and trained model
     save_dir_ginit = "samples/{}_ginit".format(tl.global_flag['mode'])
     save_dir_gan = "samples/{}_gan".format(tl.global_flag['mode'])
@@ -38,10 +39,10 @@ def train():
     tl.files.exists_or_mkdir(checkpoint_dir)
 
     ###====================== PRE-LOAD DATA ===========================###
-    train_hr_img_list = sorted(tl.files.load_file_list(path=config.TRAIN.hr_img_path, regx='.*.png', printable=False))
-    train_lr_img_list = sorted(tl.files.load_file_list(path=config.TRAIN.lr_img_path, regx='.*.png', printable=False))
-    valid_hr_img_list = sorted(tl.files.load_file_list(path=config.VALID.hr_img_path, regx='.*.png', printable=False))
-    valid_lr_img_list = sorted(tl.files.load_file_list(path=config.VALID.lr_img_path, regx='.*.png', printable=False))
+    train_hr_img_list = sorted(tl.files.load_file_list(path=config.TRAIN.hr_img_path, regx='.*.png', printable=False))#ksteinfe
+    #train_lr_img_list = sorted(tl.files.load_file_list(path=config.TRAIN.lr_img_path, regx='.*.png', printable=False))
+    #valid_hr_img_list = sorted(tl.files.load_file_list(path=config.VALID.hr_img_path, regx='.*.png', printable=False))
+    #valid_lr_img_list = sorted(tl.files.load_file_list(path=config.VALID.lr_img_path, regx='.*.png', printable=False))
 
     ## If your machine have enough memory, please pre-load the whole train set.
     train_hr_imgs = tl.vis.read_images(train_hr_img_list, path=config.TRAIN.hr_img_path, n_threads=32)
@@ -106,8 +107,15 @@ def train():
     ###========================== RESTORE MODEL =============================###
     sess = tf.Session(config=tf.ConfigProto(allow_soft_placement=True, log_device_placement=False))
     tl.layers.initialize_global_variables(sess)
+    
+    do_init_g = True #ksteinfe
+    
     if tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/g_{}.npz'.format(tl.global_flag['mode']), network=net_g) is False:
         tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/g_{}_init.npz'.format(tl.global_flag['mode']), network=net_g)
+    else:
+        print("ksteinfe: existing model found. will start from here.")
+        do_init_g = False
+        
     tl.files.load_and_assign_npz(sess=sess, name=checkpoint_dir + '/d_{}.npz'.format(tl.global_flag['mode']), network=net_d)
 
     ###============================= LOAD VGG ===============================###
@@ -135,51 +143,56 @@ def train():
     print('sample HR sub-image:', sample_imgs_384.shape, sample_imgs_384.min(), sample_imgs_384.max())
     sample_imgs_96 = tl.prepro.threading_data(sample_imgs_384, fn=downsample_fn)
     print('sample LR sub-image:', sample_imgs_96.shape, sample_imgs_96.min(), sample_imgs_96.max())
+    #print("({},{}) \t {}".format(ni, ni, len(sample_imgs_96)))
     tl.vis.save_images(sample_imgs_96, [ni, ni], save_dir_ginit + '/_train_sample_96.png')
     tl.vis.save_images(sample_imgs_384, [ni, ni], save_dir_ginit + '/_train_sample_384.png')
     tl.vis.save_images(sample_imgs_96, [ni, ni], save_dir_gan + '/_train_sample_96.png')
     tl.vis.save_images(sample_imgs_384, [ni, ni], save_dir_gan + '/_train_sample_384.png')
 
     ###========================= initialize G ====================###
-    ## fixed learning rate
-    sess.run(tf.assign(lr_v, lr_init))
-    print(" ** fixed learning rate: %f (for init G)" % lr_init)
-    for epoch in range(0, n_epoch_init + 1):
-        epoch_time = time.time()
-        total_mse_loss, n_iter = 0, 0
+    
+    if do_init_g: #ksteinfe
+        
+        ## fixed learning rate
+        sess.run(tf.assign(lr_v, lr_init))
+        print(" ** fixed learning rate: %f (for init G)" % lr_init)
+        for epoch in range(0, n_epoch_init + 1):
+            epoch_time = time.time()
+            total_mse_loss, n_iter = 0, 0
 
-        ## If your machine cannot load all images into memory, you should use
-        ## this one to load batch of images while training.
-        # random.shuffle(train_hr_img_list)
-        # for idx in range(0, len(train_hr_img_list), batch_size):
-        #     step_time = time.time()
-        #     b_imgs_list = train_hr_img_list[idx : idx + batch_size]
-        #     b_imgs = tl.prepro.threading_data(b_imgs_list, fn=get_imgs_fn, path=config.TRAIN.hr_img_path)
-        #     b_imgs_384 = tl.prepro.threading_data(b_imgs, fn=crop_sub_imgs_fn, is_random=True)
-        #     b_imgs_96 = tl.prepro.threading_data(b_imgs_384, fn=downsample_fn)
+            ## If your machine cannot load all images into memory, you should use
+            ## this one to load batch of images while training.
+            # random.shuffle(train_hr_img_list)
+            # for idx in range(0, len(train_hr_img_list), batch_size):
+            #     step_time = time.time()
+            #     b_imgs_list = train_hr_img_list[idx : idx + batch_size]
+            #     b_imgs = tl.prepro.threading_data(b_imgs_list, fn=get_imgs_fn, path=config.TRAIN.hr_img_path)
+            #     b_imgs_384 = tl.prepro.threading_data(b_imgs, fn=crop_sub_imgs_fn, is_random=True)
+            #     b_imgs_96 = tl.prepro.threading_data(b_imgs_384, fn=downsample_fn)
 
-        ## If your machine have enough memory, please pre-load the whole train set.
-        for idx in range(0, len(train_hr_imgs), batch_size):
-            step_time = time.time()
-            b_imgs_384 = tl.prepro.threading_data(train_hr_imgs[idx:idx + batch_size], fn=crop_sub_imgs_fn, is_random=True)
-            b_imgs_96 = tl.prepro.threading_data(b_imgs_384, fn=downsample_fn)
-            ## update G
-            errM, _ = sess.run([mse_loss, g_optim_init], {t_image: b_imgs_96, t_target_image: b_imgs_384})
-            print("Epoch [%2d/%2d] %4d time: %4.4fs, mse: %.8f " % (epoch, n_epoch_init, n_iter, time.time() - step_time, errM))
-            total_mse_loss += errM
-            n_iter += 1
-        log = "[*] Epoch: [%2d/%2d] time: %4.4fs, mse: %.8f" % (epoch, n_epoch_init, time.time() - epoch_time, total_mse_loss / n_iter)
-        print(log)
+            ## If your machine have enough memory, please pre-load the whole train set.
+            for idx in range(0, len(train_hr_imgs), batch_size):
+                step_time = time.time()
+                b_imgs_384 = tl.prepro.threading_data(train_hr_imgs[idx:idx + batch_size], fn=crop_sub_imgs_fn, is_random=True)
+                b_imgs_96 = tl.prepro.threading_data(b_imgs_384, fn=downsample_fn)
+                ## update G
+                errM, _ = sess.run([mse_loss, g_optim_init], {t_image: b_imgs_96, t_target_image: b_imgs_384})
+                print("Epoch [%2d/%2d] %4d time: %4.4fs, mse: %.8f " % (epoch, n_epoch_init, n_iter, time.time() - step_time, errM))
+                total_mse_loss += errM
+                n_iter += 1
+                
+            log = "[*] Epoch: [%2d/%2d] time: %4.4fs, mse: %.8f" % (epoch, n_epoch_init, time.time() - epoch_time, total_mse_loss / n_iter)
+            print(log)
 
-        ## quick evaluation on train set
-        if (epoch != 0) and (epoch % 10 == 0):
-            out = sess.run(net_g_test.outputs, {t_image: sample_imgs_96})  #; print('gen sub-image:', out.shape, out.min(), out.max())
-            print("[*] save images")
-            tl.vis.save_images(out, [ni, ni], save_dir_ginit + '/train_%d.png' % epoch)
+            ## quick evaluation on train set
+            if (epoch != 0) and (epoch % 5 == 0):
+                out = sess.run(net_g_test.outputs, {t_image: sample_imgs_96})  #; print('gen sub-image:', out.shape, out.min(), out.max())
+                print("[*] save images")
+                tl.vis.save_images(out, [ni, ni], save_dir_ginit + '/train_%d.png' % epoch)
 
-        ## save model
-        if (epoch != 0) and (epoch % 10 == 0):
-            tl.files.save_npz(net_g.all_params, name=checkpoint_dir + '/g_{}_init.npz'.format(tl.global_flag['mode']), sess=sess)
+            ## save model
+            if (epoch != 0) and (epoch % 5 == 0):
+                tl.files.save_npz(net_g.all_params, name=checkpoint_dir + '/g_{}_init.npz'.format(tl.global_flag['mode']), sess=sess)
 
     ###========================= train GAN (SRGAN) =========================###
     for epoch in range(0, n_epoch + 1):
@@ -221,24 +234,29 @@ def train():
             total_d_loss += errD
             total_g_loss += errG
             n_iter += 1
+            
+            ''' ksteinfe added this to sample each iter
+            out = sess.run(net_g_test.outputs, {t_image: sample_imgs_96})  #; print('gen sub-image:', out.shape, out.min(), out.max())
+            tl.vis.save_images(out, [ni, ni], save_dir_gan + '/train_%d.png' % epoch)
+            '''
 
-        log = "[*] Epoch: [%2d/%2d] time: %4.4fs, d_loss: %.8f g_loss: %.8f" % (epoch, n_epoch, time.time() - epoch_time, total_d_loss / n_iter,
-                                                                                total_g_loss / n_iter)
+        log = "[*] Epoch: [%2d/%2d] time: %4.4fs, d_loss: %.8f g_loss: %.8f" % (epoch, n_epoch, time.time() - epoch_time, total_d_loss / n_iter, total_g_loss / n_iter)
         print(log)
 
         ## quick evaluation on train set
-        if (epoch != 0) and (epoch % 10 == 0):
-            out = sess.run(net_g_test.outputs, {t_image: sample_imgs_96})  #; print('gen sub-image:', out.shape, out.min(), out.max())
+        if (epoch != 0) and (epoch % 5 == 0):  # ksteinfe changed to save every 5 epochs
             print("[*] save images")
+            out = sess.run(net_g_test.outputs, {t_image: sample_imgs_96})  #; print('gen sub-image:', out.shape, out.min(), out.max())
             tl.vis.save_images(out, [ni, ni], save_dir_gan + '/train_%d.png' % epoch)
 
         ## save model
-        if (epoch != 0) and (epoch % 10 == 0):
+        if (epoch != 0) and (epoch % 5 == 0): # ksteinfe changed to save every 5 epochs
             tl.files.save_npz(net_g.all_params, name=checkpoint_dir + '/g_{}.npz'.format(tl.global_flag['mode']), sess=sess)
             tl.files.save_npz(net_d.all_params, name=checkpoint_dir + '/d_{}.npz'.format(tl.global_flag['mode']), sess=sess)
 
 
 def evaluate():
+    print("==== EVALUATING")
     ## create folders to save result images
     save_dir = "samples/{}".format(tl.global_flag['mode'])
     tl.files.exists_or_mkdir(save_dir)
@@ -263,7 +281,7 @@ def evaluate():
     # exit()
 
     ###========================== DEFINE MODEL ============================###
-    imid = 64  # 0: 企鹅  81: 蝴蝶 53: 鸟  64: 古堡
+    imid = 0  # 0: 企鹅  81: 蝴蝶 53: 鸟  64: 古堡
     valid_lr_img = valid_lr_imgs[imid]
     valid_hr_img = valid_hr_imgs[imid]
     # valid_lr_img = get_imgs_fn('test.png', 'data2017/')  # if you want to test your own image
